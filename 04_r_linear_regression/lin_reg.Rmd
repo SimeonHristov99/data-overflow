@@ -1,0 +1,161 @@
+---
+title: "Linear Regression using R"
+author: "Simeon Hristov"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Employee Performance Prediction
+
+### Context
+
+Given data about employee answers on different selection tools, predict their performance.
+
+### Description of the features
+
+The features and their meaning are provided below.
+
+- `ID`: Unique identifier
+- `SJT`: Situational judgement test (a type of selection tool that many organizations use)
+- `EmotionalIntelligence`: inventory or test
+- `Proactivity`: personality assessment test
+- `Performance`: job evaluation ratings
+- `Turnover`: whether an employee has left the company
+
+Higher scores indicate high level and is assumed to have a positive impact.
+
+## Prerequisites
+
+The following libraries need to be installed in order to run the script. You can install them in case you don't have them.
+
+```{r message=FALSE, eval=FALSE}
+install.packages('readr')
+install.packages('lessR')
+```
+
+When all is set up, include them in the project.
+
+```{r message=FALSE}
+library(readr)
+library(lessR)
+```
+
+## Getting the data
+
+Let's first create a variable that we'll treat as the path to our data.
+
+```{r path}
+DATA_PATH <- './SelectionExercise.csv'
+```
+
+Next, we load the data in a data frame by using the `read_csv()` function from the `readr` library.
+
+```{r load}
+df <- read_csv(DATA_PATH)
+```
+
+We have a total of 300 samples with no missing values. Here are the first 10 observations.
+
+```{r}
+df
+```
+
+## Simple Linear Regression
+
+Let's check whether we meet the assumptions of a linear regression model.
+
+```{r plot, echo=FALSE}
+ScatterPlot(SJT, Performance, data=df, ellipse=TRUE, out_cut=.01)
+```
+
+We meet the assumption of bivariate normal distribution. There is a linear relationship between `SJT` and `Performance`. The correlation coefficient is `0.417` which signals good relationship. The `p-value` is `0` which means that this is a statistically significant association. Nevertheless, there are some outliers (for example `201` and `233`) and we will see how the model will perform if we remove them.
+
+### Simple Regression from `lessR`
+
+We perform linear regression by using the `Regression` function that comes with the `lessR` package. Conveniently, it also useful plots and analysis results.
+
+```{r reg_plot, echo=FALSE}
+Regression(Performance ~ SJT, data=df)
+```
+
+The assumption of normally distributed residuals is met based on `Plot 1: Distribution of Residuals`. The assumptions of average residual error being (almost) 0 and homoscedasticity of variances are both met based on `Plot 2: Residuals vs Fitted Values`.
+
+The `BASIC ANALYSIS` part of the output shows that for every `1` unit increase in `SJT`, `Performance` increases by `0.682` units. We can also construct the equation of the line: `Performance = 6.939 + 0.682 * SJT`.
+
+The `adjusted R-squared` value is `0.171`, i.e. `SJT` explains about `17%` of the variability in `Performance`. The `F-statistic` shows that a model using `SJT` will outperform a null model, i.e. `SJT` is significant.
+
+We can again see the potential outliers by looking at the part. The `Cook's Distance` of sample with id `233` is noticeably higher than the other samples: `0.121`.
+
+If we standardized our data, the results will not differ by much.
+
+```{r standardized, echo=FALSE}
+reg_brief(Performance ~ SJT, data=df, new_scale="z")
+```
+
+### Inspecting outliers
+
+A model without the observation with id 233 does not perform that well. Here's what we would get.
+
+```{r no_outliers, echo=FALSE}
+reg_brief(Performance ~ SJT, data=df, rows = (ID != 233))
+```
+
+The new `Adjusted R-squared` value is `0.159` which is a slight decrease from `0.171` and therefore we have no reason to remove that observation.
+
+## Multiple Linear Regression
+
+Firstly, we'll check how well the other features predict `Performance`. We start with `EmotionalIntelligence`.
+
+```{r scatter_emotional_int, echo=FALSE}
+ScatterPlot(EmotionalIntelligence, Performance, data=df, ellipse=TRUE)
+Regression(Performance ~ EmotionalIntelligence, data=df)
+```
+
+The `EmotionalIntelligence` feature is statistically significantly associated in a positive direction with `Performance`.
+
+The same can be said for `Proactivity`.
+
+```{r scatter_proac, echo=FALSE}
+ScatterPlot(Proactivity, Performance, data=df, ellipse=TRUE)
+Regression(Performance ~ Proactivity, data=df)
+```
+
+`Proactivity` is also statistically significantly associated in a positive direction with `Performance`. The residuals when using `Proactivity` don't have strong homoscedasticity though. Also, on average they are not 0.
+
+Nevertheless, we do see a linear relationship between those features and `Performance`, so we'll try out a model by using them.
+
+```{r mult_lin_reg_model}
+Regression(Performance ~ SJT + EmotionalIntelligence + Proactivity, data=df)
+```
+
+From the `Collinearity` part of the output we see that there is multicollinearity! `SJT` and `EmotionalIntelligence` are `0.93` correlated. Also the tolerance for them is below `0.2` (`1.0` is optimal) and therefore we have to drop one of them in order to do proper regression. Because the `p-value` for `EmotionalIntelligence` is largest, we remove it.
+
+We can also notice the higher `Adjusted R-squared` score of `0.259`. We could say that this model performs better than the model with `SJT` only.
+
+### Dropping the `EmotionalIntelligence` feature
+
+```{r no_ei}
+Regression(Performance ~ SJT + Proactivity, data=df)
+```
+
+Now the non-collinearity assumption is met based on the `Tolerance` statistics. The residuals are normally distributed based on `Plot 1: Distribution of Residuals`. There is no evidence against heteroscedasticity in `Plot 2: Residuals vs Fitted Values`. Also, although there is a slight bend, the average error is not that far from `0`.
+
+The `Adjusted R-squared` value is `0.261`, i.e. we keep improving the model and explaining more and more variance.
+
+Looking at the `BASIC ANALYSIS` part of the output, we that when `Proactivity` is fixed, for every `1` unit increase in `SJT`, there is a `0.561` increase in `Performance`. When `SJT` is fixed, for every `1` unit increase in `Proactivity`, there is a `0.386` increase in `Performance`. This goes to say that an increase in `Proactivity` is better (more important) than an increase in `SJT`.
+
+This is the line we would get: `Performance = 5.555 + 0.561*SJT + 0.386*Proactivity`.
+
+### Removing potential outliers
+
+From the `RESIDUALS AND INFLUENCE` part of the output, we see that observations `201`, `70`, `170`, and `270` have a large `Cook's Distance`, i.e. our model performed poorly on them. We can test to see if removing them yields a better result.
+
+```{r no_outl}
+reg_brief(Performance ~ SJT + Proactivity, data=df, rows = (!ID %in% c(201, 70, 170, 270)))
+```
+
+The new `Adjusted R-squared` is `0.370` which means that with this data it is better to remove those observations but we should be careful before drawing conclusions. Those samples may not be true outliers, but rather the result of poor sampling.
